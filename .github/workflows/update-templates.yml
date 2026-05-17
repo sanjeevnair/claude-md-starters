@@ -28,12 +28,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Run template updater
+      - name: Improve templates from josix examples
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/update_templates.py
 
+      - name: Sync updated templates to Tulzu
+        env:
+          TULZU_PAT: ${{ secrets.TULZU_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/sync_tulzu.py
+
       - name: Done
         if: success()
-        run: echo "Template update run complete."
+        run: echo "Template update + Tulzu sync complete."
