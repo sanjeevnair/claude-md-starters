@@ -192,7 +192,12 @@ def apply_and_pr(updates: dict[str, str]) -> None:
         print("No improvements suggested. Templates are up to date.")
         return
 
-    branch = "auto/template-improvements"
+    from datetime import datetime
+    branch = f"auto/template-improvements-{datetime.utcnow().strftime('%Y%m%d')}"
+
+    # Delete remote branch if it exists from a previous run
+    subprocess.run(["git", "push", "origin", f":{branch}"],
+                   capture_output=True)  # ignore error if not exists
     subprocess.run(["git", "checkout", "-b", branch], check=True)
 
     changed = []
@@ -233,15 +238,21 @@ def apply_and_pr(updates: dict[str, str]) -> None:
         "Please review before merging."
     )
 
-    subprocess.run([
+    result = subprocess.run([
         "gh", "pr", "create",
         "--title", "auto: weekly template improvements from real-world examples",
         "--body", body,
         "--base", "main",
         "--head", branch,
-    ], check=True)
+    ], capture_output=True, text=True)
 
-    print(f"PR opened for: {changed}")
+    if result.returncode == 0:
+        print(f"PR opened for: {changed}")
+    else:
+        # PR creation failed (permissions) — branch is pushed, create PR manually
+        print(f"PR creation failed: {result.stderr.strip()}")
+        print(f"Branch pushed: {branch} — create PR manually at:")
+        print(f"  https://github.com/sanjeevnair/claude-md-starters/compare/{branch}")
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
