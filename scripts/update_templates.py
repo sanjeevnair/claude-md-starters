@@ -89,7 +89,7 @@ def fetch_relevant_examples() -> list[dict]:
                         relevant.append({
                             "project": proj["name"],
                             "file": f["name"],
-                            "content": content[:3000],
+                            "content": content[:1500],
                         })
                     break  # one file per project
 
@@ -109,7 +109,7 @@ def read_templates() -> dict[str, str]:
 def ask_gemini(examples: list[dict], templates: dict[str, str]) -> dict[str, str]:
     examples_text = "\n\n---\n\n".join(
         f"## {e['project']} ({e['file']})\n\n{e['content']}"
-        for e in examples[:8]  # fewer examples = smaller response
+        for e in examples[:5]  # keep prompt tight
     )
 
     # List template names and first 20 lines only — ask for additions, not full rewrites
@@ -150,7 +150,7 @@ Example output format:
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "maxOutputTokens": 2048,      # additions only — much smaller
+            "maxOutputTokens": 4096,      # enough for section additions per template
             "temperature": 0.1,
             "responseMimeType": "application/json",  # force JSON mode
         }
