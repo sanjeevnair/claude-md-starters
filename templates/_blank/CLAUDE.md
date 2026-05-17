@@ -44,3 +44,15 @@
 ```
 [VAR_NAME]=   # description
 ```
+
+## Source Links
+- **Repository:** [Link to your project's GitHub/GitLab/etc. repository]
+- **License:** [MIT | Apache 2.0 | GPLv3 | etc.]
+
+## Key Features
+- [Feature 1: Describe a standout aspect or architectural pattern]
+- [Feature 2: Highlight a unique solution or integration]
+- [Feature 3: Mention specific educational value or advanced techniques]
+
+## Project Status
+[Active development | Maintenance mode | Archived]

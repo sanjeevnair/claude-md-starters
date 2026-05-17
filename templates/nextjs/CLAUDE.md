@@ -110,3 +110,15 @@ NEXT_PUBLIC_APP_URL=   # Public base URL (accessible in browser)
 
 - **Public** (prefix `NEXT_PUBLIC_`): accessible in browser bundle
 - **Private**: server-only — never expose to client code
+
+## Source Links
+- **Repository:** [Link to your project's GitHub/GitLab/etc. repository]
+- **License:** [MIT | Apache 2.0 | GPLv3 | etc.]
+
+## Key Features
+- [Feature 1: Describe a standout aspect or architectural pattern]
+- [Feature 2: Highlight a unique solution or integration]
+- [Feature 3: Mention specific educational value or advanced techniques]
+
+## Project Status
+[Active development | Maintenance mode | Archived]
