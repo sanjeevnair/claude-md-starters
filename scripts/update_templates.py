@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Fetch relevant CLAUDE.md examples from josix/awesome-claude-md,
-filter for Next.js / React / Vite projects, then use Claude API
-to suggest improvements to our starter templates.
-Opens a PR if improvements are found.
+filter for Next.js / React / Vite / Python / Rust projects, then use
+Gemini 1.5 Flash (free tier) to suggest improvements to our starter
+templates. Opens a PR if improvements are found.
 """
 
 import os
@@ -12,117 +12,112 @@ import json
 import base64
 import subprocess
 import urllib.request
-import urllib.error
+import urllib.parse
 from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-JOSIX_REPO = "josix/awesome-claude-md"
-JOSIX_SCENARIOS_PATH = "scenarios"
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+JOSIX_REPO    = "josix/awesome-claude-md"
+JOSIX_SCENARIOS = "scenarios"
+GOOGLE_API_KEY  = os.environ.get("GOOGLE_API_KEY", "")
+GITHUB_TOKEN    = os.environ.get("GITHUB_TOKEN", "")
+GEMINI_MODEL    = "gemini-1.5-flash"
 
-# Keywords that signal a Next.js / React / TypeScript / Vite project
 RELEVANT_KEYWORDS = [
-    "next.js", "nextjs", "next ", "app router", "pages router",
+    "next.js", "nextjs", "next js", "app router", "pages router",
     "react", "vite", "typescript", "tailwind", "shadcn",
-    "vercel", "react router", "remix", "gatsby", "tanstack",
+    "vercel", "react router", "tanstack",
+    "python", "fastapi", "django", "flask", "pydantic", "uvicorn",
+    "rust", "cargo", "tokio", "clippy",
+    "node.js", "nodejs", "express",
+    "llm", "openai", "langchain", "anthropic", "embedding",
 ]
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
-# ── GitHub API helpers ─────────────────────────────────────────────────────────
+# ── GitHub API ────────────────────────────────────────────────────────────────
 
 def github_get(path: str) -> dict | list:
-    url = f"https://api.github.com/repos/{path}"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "claude-md-starters-updater",
-    })
-    with urllib.request.urlopen(req) as r:
-        return json.loads(r.read())
-
-
-def get_file_content(repo: str, file_path: str) -> str | None:
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{path}",
+        headers={
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "claude-md-starters-updater",
+        }
+    )
     try:
-        data = github_get(f"{repo}/contents/{file_path}")
-        if isinstance(data, dict) and data.get("encoding") == "base64":
-            return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-    except Exception:
-        return None
-
-
-def list_dir(repo: str, path: str) -> list[dict]:
-    try:
-        items = github_get(f"{repo}/contents/{path}")
-        return items if isinstance(items, list) else []
-    except Exception:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception as e:
+        print(f"  GitHub API error {path}: {e}")
         return []
 
-# ── Fetch josix examples ───────────────────────────────────────────────────────
 
-def is_relevant(content: str) -> bool:
-    lower = content.lower()
+def file_content(path: str) -> str:
+    data = github_get(f"{JOSIX_REPO}/contents/{path}")
+    if isinstance(data, dict) and data.get("encoding") == "base64":
+        return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+    return ""
+
+
+def list_dir(path: str) -> list[dict]:
+    items = github_get(f"{JOSIX_REPO}/contents/{path}")
+    return items if isinstance(items, list) else []
+
+# ── Fetch relevant josix examples ─────────────────────────────────────────────
+
+def is_relevant(text: str) -> bool:
+    lower = text.lower()
     return any(kw in lower for kw in RELEVANT_KEYWORDS)
 
 
 def fetch_relevant_examples() -> list[dict]:
-    """Walk josix scenarios, return CLAUDE.md files relevant to our frameworks."""
     relevant = []
-    categories = list_dir(JOSIX_REPO, JOSIX_SCENARIOS_PATH)
+    categories = [i for i in list_dir(JOSIX_SCENARIOS) if i["type"] == "dir"]
 
     for cat in categories:
-        if cat["type"] != "dir":
-            continue
-        projects = list_dir(JOSIX_REPO, f"{JOSIX_SCENARIOS_PATH}/{cat['name']}")
+        projects = [i for i in list_dir(f"{JOSIX_SCENARIOS}/{cat['name']}") if i["type"] == "dir"]
         for proj in projects:
-            if proj["type"] != "dir":
-                continue
-            # Check project README or CLAUDE.md
-            proj_path = f"{JOSIX_SCENARIOS_PATH}/{cat['name']}/{proj['name']}"
-            files = list_dir(JOSIX_REPO, proj_path)
+            proj_path = f"{JOSIX_SCENARIOS}/{cat['name']}/{proj['name']}"
+            files = list_dir(proj_path)
             for f in files:
-                if f["name"].upper() in ("CLAUDE.MD", "README.MD"):
-                    content = get_file_content(JOSIX_REPO, f"{proj_path}/{f['name']}")
+                if f["name"].upper() in ("README.MD", "CLAUDE.MD"):
+                    content = file_content(f"{proj_path}/{f['name']}")
                     if content and is_relevant(content):
                         relevant.append({
                             "project": proj["name"],
                             "file": f["name"],
-                            "content": content[:3000],  # cap per file
+                            "content": content[:3000],
                         })
-                        break  # one file per project is enough
+                    break  # one file per project
 
-    print(f"Found {len(relevant)} relevant examples from josix")
+    print(f"Found {len(relevant)} relevant examples")
     return relevant
 
-# ── Read our current templates ─────────────────────────────────────────────────
+# ── Read our templates ────────────────────────────────────────────────────────
 
 def read_templates() -> dict[str, str]:
-    templates = {}
-    for path in TEMPLATES_DIR.rglob("CLAUDE.md"):
-        name = str(path.relative_to(TEMPLATES_DIR))
-        templates[name] = path.read_text()
-    return templates
+    return {
+        str(p.relative_to(TEMPLATES_DIR)): p.read_text()
+        for p in TEMPLATES_DIR.rglob("CLAUDE.md")
+    }
 
-# ── Call Claude API ────────────────────────────────────────────────────────────
+# ── Call Gemini API ───────────────────────────────────────────────────────────
 
-def ask_claude(examples: list[dict], templates: dict[str, str]) -> dict[str, str]:
-    """Ask Claude to suggest improvements to our templates based on real examples."""
-
+def ask_gemini(examples: list[dict], templates: dict[str, str]) -> dict[str, str]:
     examples_text = "\n\n---\n\n".join(
         f"## {e['project']} ({e['file']})\n\n{e['content']}"
-        for e in examples[:12]  # cap at 12 examples to stay within token budget
+        for e in examples[:12]
     )
-
     templates_text = "\n\n---\n\n".join(
         f"## Our template: {name}\n\n{content}"
         for name, content in templates.items()
     )
 
-    prompt = f"""You are reviewing real-world CLAUDE.md files from open-source projects that use Next.js, React, TypeScript, or Vite. Your job is to improve our starter templates by incorporating patterns that appear consistently across multiple real projects.
+    prompt = f"""You are reviewing real-world CLAUDE.md files from open-source projects. Your job is to improve our starter templates by incorporating patterns that appear consistently across multiple real projects.
 
-## Real-world examples from josix/awesome-claude-md
+## Real-world examples
 
 {examples_text}
 
@@ -134,43 +129,46 @@ def ask_claude(examples: list[dict], templates: dict[str, str]) -> dict[str, str
 
 For each of our starter templates, suggest specific, concrete improvements based on patterns you see in the real-world examples. Only suggest changes that:
 1. Appear in at least 2 of the real examples
-2. Are genuinely useful (not just padding)
-3. Are specific to the framework (not generic advice)
+2. Are genuinely useful — not padding or generic advice
+3. Are specific to the framework/language (not obvious best practices)
 4. Are not already covered in our template
 
-Return your response as a JSON object where keys are template filenames (e.g. "nextjs/CLAUDE.md") and values are the COMPLETE updated template content (not a diff — the full file). Only include templates that need changes. If no improvements are needed, return an empty object {{}}.
+Return your response as a JSON object where keys are template filenames (e.g. "nextjs/CLAUDE.md") and values are the COMPLETE updated template content (not a diff — the full file). Only include templates that actually need changes. If no improvements are needed, return an empty JSON object {{}}.
 
-Return ONLY valid JSON, no markdown fences."""
+Return ONLY valid JSON with no markdown code fences."""
 
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GOOGLE_API_KEY}"
+    )
     payload = json.dumps({
-        "model": "claude-3-5-haiku-20241022",
-        "max_tokens": 8192,
-        "messages": [{"role": "user", "content": prompt}]
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": 8192,
+            "temperature": 0.2,
+        }
     }).encode()
 
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
+        url, data=payload,
+        headers={"Content-Type": "application/json"}
     )
 
-    with urllib.request.urlopen(req) as r:
+    with urllib.request.urlopen(req, timeout=60) as r:
         resp = json.loads(r.read())
 
-    text = resp["content"][0]["text"].strip()
-    # Strip markdown code fences if present
+    text = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    # Strip markdown fences if Gemini adds them
     if text.startswith("```"):
-        text = "\n".join(text.split("\n")[1:])
+        lines = text.split("\n")
+        text = "\n".join(lines[1:])
         if text.endswith("```"):
-            text = text[:-3]
+            text = text[:-3].rstrip()
 
     return json.loads(text.strip())
 
-# ── Apply changes and open PR ──────────────────────────────────────────────────
+# ── Apply changes and open PR ─────────────────────────────────────────────────
 
 def apply_and_pr(updates: dict[str, str]) -> None:
     if not updates:
@@ -184,29 +182,33 @@ def apply_and_pr(updates: dict[str, str]) -> None:
     for template_name, new_content in updates.items():
         path = TEMPLATES_DIR / template_name
         if not path.parent.exists():
-            print(f"Skip unknown template path: {template_name}")
+            print(f"  Skip unknown path: {template_name}")
             continue
         path.write_text(new_content)
         changed.append(template_name)
-        print(f"Updated: {template_name}")
+        print(f"  Updated: {template_name}")
 
     if not changed:
-        print("No valid template paths updated.")
+        print("No valid templates updated.")
         return
 
-    subprocess.run(["git", "add"] + [str(TEMPLATES_DIR / c) for c in changed], check=True)
-    subprocess.run(["git", "commit", "-m",
-        f"auto: improve templates from josix/awesome-claude-md examples\n\nUpdated: {', '.join(changed)}"],
+    subprocess.run(
+        ["git", "add"] + [str(TEMPLATES_DIR / c) for c in changed],
+        check=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m",
+         f"auto: improve templates from josix/awesome-claude-md examples\n\nUpdated: {', '.join(changed)}"],
         check=True
     )
     subprocess.run(["git", "push", "origin", branch], check=True)
 
     body = (
         "## Automated template improvements\n\n"
-        "This PR was opened by the weekly update action. Changes are based on patterns "
-        "found in relevant Next.js/React/TypeScript projects in "
-        "[josix/awesome-claude-md](https://github.com/josix/awesome-claude-md).\n\n"
-        f"**Templates updated:** {', '.join(changed)}\n\n"
+        "Opened by the weekly update action. Changes based on patterns found in "
+        "relevant projects in [josix/awesome-claude-md](https://github.com/josix/awesome-claude-md).\n\n"
+        f"**Updated:** {', '.join(changed)}\n\n"
+        "**Model used:** Gemini 1.5 Flash\n\n"
         "Please review before merging."
     )
 
@@ -220,11 +222,11 @@ def apply_and_pr(updates: dict[str, str]) -> None:
 
     print(f"PR opened for: {changed}")
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    if not ANTHROPIC_API_KEY:
-        print("Error: ANTHROPIC_API_KEY not set")
+    if not GOOGLE_API_KEY:
+        print("Error: GOOGLE_API_KEY not set")
         sys.exit(1)
 
     print("Fetching relevant examples from josix/awesome-claude-md...")
@@ -237,8 +239,8 @@ def main():
     print("Reading current templates...")
     templates = read_templates()
 
-    print("Asking Claude for improvement suggestions...")
-    updates = ask_claude(examples, templates)
+    print("Asking Gemini for improvement suggestions...")
+    updates = ask_gemini(examples, templates)
 
     print(f"Suggested updates for: {list(updates.keys()) or 'none'}")
     apply_and_pr(updates)

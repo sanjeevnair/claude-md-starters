@@ -3,7 +3,7 @@ name: Weekly template improvements
 on:
   schedule:
     - cron: '0 9 * * 1'   # Every Monday at 09:00 UTC
-  workflow_dispatch:        # Allow manual trigger from Actions tab
+  workflow_dispatch:        # Manual trigger from Actions tab
 
 permissions:
   contents: write
@@ -30,10 +30,10 @@ jobs:
 
       - name: Run template updater
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/update_templates.py
 
-      - name: No changes summary
+      - name: Done
         if: success()
         run: echo "Template update run complete."
