@@ -7,6 +7,7 @@ templates. Opens a PR if improvements are found.
 """
 
 import os
+import re
 import sys
 import json
 import base64
@@ -108,34 +109,39 @@ def read_templates() -> dict[str, str]:
 def ask_gemini(examples: list[dict], templates: dict[str, str]) -> dict[str, str]:
     examples_text = "\n\n---\n\n".join(
         f"## {e['project']} ({e['file']})\n\n{e['content']}"
-        for e in examples[:12]
+        for e in examples[:8]  # fewer examples = smaller response
     )
-    templates_text = "\n\n---\n\n".join(
-        f"## Our template: {name}\n\n{content}"
+
+    # List template names and first 20 lines only — ask for additions, not full rewrites
+    template_summaries = "\n\n".join(
+        f"### {name}\n" + "\n".join(content.splitlines()[:20]) + "\n..."
         for name, content in templates.items()
     )
 
-    prompt = f"""You are reviewing real-world CLAUDE.md files from open-source projects. Your job is to improve our starter templates by incorporating patterns that appear consistently across multiple real projects.
+    prompt = f"""You are reviewing real-world CLAUDE.md files from open-source projects. Suggest improvements to starter templates based on patterns that appear in multiple real projects.
 
-## Real-world examples
+## Real-world examples (filtered for Next.js / React / TypeScript / Python / Rust)
 
 {examples_text}
 
-## Our current starter templates
+## Our starter templates (first 20 lines of each shown)
 
-{templates_text}
+{template_summaries}
 
 ## Task
 
-For each of our starter templates, suggest specific, concrete improvements based on patterns you see in the real-world examples. Only suggest changes that:
-1. Appear in at least 2 of the real examples
-2. Are genuinely useful — not padding or generic advice
-3. Are specific to the framework/language (not obvious best practices)
-4. Are not already covered in our template
+Return a JSON object where:
+- keys = template filenames (e.g. "nextjs/CLAUDE.md")
+- values = ONLY the new markdown sections to APPEND to that template (not the full file)
 
-Return your response as a JSON object where keys are template filenames (e.g. "nextjs/CLAUDE.md") and values are the COMPLETE updated template content (not a diff — the full file). Only include templates that actually need changes. If no improvements are needed, return an empty JSON object {{}}.
+Rules:
+1. Only suggest additions that appear in 2+ real examples
+2. Be specific and terse — no generic advice
+3. Skip anything already covered (visible in the first 20 lines)
+4. If nothing to add, return {{}}
 
-Return ONLY valid JSON with no markdown code fences."""
+Example output format:
+{{"nextjs/CLAUDE.md": "## Debugging\\n- Use VS Code debugger with Next.js config...", "react-vite/CLAUDE.md": "## Performance\\n- Use React DevTools Profiler..."}}"""
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -144,8 +150,9 @@ Return ONLY valid JSON with no markdown code fences."""
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "maxOutputTokens": 8192,
-            "temperature": 0.2,
+            "maxOutputTokens": 2048,      # additions only — much smaller
+            "temperature": 0.1,
+            "responseMimeType": "application/json",  # force JSON mode
         }
     }).encode()
 
@@ -157,16 +164,26 @@ Return ONLY valid JSON with no markdown code fences."""
     with urllib.request.urlopen(req, timeout=60) as r:
         resp = json.loads(r.read())
 
-    text = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+    # Check finish reason
+    candidate = resp["candidates"][0]
+    finish = candidate.get("finishReason", "")
+    if finish not in ("STOP", ""):
+        print(f"  Gemini finish reason: {finish} — skipping update")
+        return {}
 
-    # Strip markdown fences if Gemini adds them
+    text = candidate["content"]["parts"][0]["text"].strip()
+
+    # Belt-and-braces fence strip even with responseMimeType set
     if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:])
-        if text.endswith("```"):
-            text = text[:-3].rstrip()
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text.rstrip())
 
-    return json.loads(text.strip())
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError as e:
+        print(f"  JSON parse error: {e}")
+        print(f"  Raw response (first 500 chars): {text[:500]}")
+        return {}
 
 # ── Apply changes and open PR ─────────────────────────────────────────────────
 
@@ -179,14 +196,18 @@ def apply_and_pr(updates: dict[str, str]) -> None:
     subprocess.run(["git", "checkout", "-b", branch], check=True)
 
     changed = []
-    for template_name, new_content in updates.items():
+    for template_name, additions in updates.items():
         path = TEMPLATES_DIR / template_name
-        if not path.parent.exists():
-            print(f"  Skip unknown path: {template_name}")
+        if not path.exists():
+            print(f"  Skip unknown template: {template_name}")
             continue
-        path.write_text(new_content)
+        if not additions.strip():
+            continue
+        # APPEND new sections to existing template
+        existing = path.read_text()
+        path.write_text(existing.rstrip() + "\n\n" + additions.strip() + "\n")
         changed.append(template_name)
-        print(f"  Updated: {template_name}")
+        print(f"  Appended to: {template_name}")
 
     if not changed:
         print("No valid templates updated.")
