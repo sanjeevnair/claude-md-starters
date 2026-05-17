@@ -1,45 +1,29 @@
-name: Weekly template improvements
+name: Sync templates to Tulzu
 
 on:
-  schedule:
-    - cron: '0 9 * * 1'   # Every Monday at 09:00 UTC
-  workflow_dispatch:        # Manual trigger from Actions tab
+  push:
+    branches: [main]
+    paths:
+      - 'templates/**'          # Only runs when a template file changes
+  workflow_dispatch:             # Manual trigger
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  update:
+  sync:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Improve templates from josix examples
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/update_templates.py
-
-      - name: Sync updated templates to Tulzu
+      - name: Sync templates to tulzu.com
         env:
           TULZU_PAT: ${{ secrets.TULZU_PAT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/sync_tulzu.py
-
-      - name: Done
-        if: success()
-        run: echo "Template update + Tulzu sync complete."
