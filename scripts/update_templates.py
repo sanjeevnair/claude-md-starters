@@ -2,7 +2,7 @@
 """
 Fetch relevant CLAUDE.md examples from josix/awesome-claude-md,
 filter for Next.js / React / Vite / Python / Rust projects, then use
-Gemini 1.5 Flash (free tier) to suggest improvements to our starter
+Gemini 2.5 Flash (free tier) to suggest improvements to our starter
 templates. Opens a PR if improvements are found.
 """
 
@@ -21,7 +21,7 @@ JOSIX_REPO    = "josix/awesome-claude-md"
 JOSIX_SCENARIOS = "scenarios"
 GOOGLE_API_KEY  = os.environ.get("GOOGLE_API_KEY", "")
 GITHUB_TOKEN    = os.environ.get("GITHUB_TOKEN", "")
-GEMINI_MODEL    = "gemini-1.5-flash"
+GEMINI_MODEL    = "gemini-2.5-flash"
 
 RELEVANT_KEYWORDS = [
     "next.js", "nextjs", "next js", "app router", "pages router",
@@ -208,7 +208,7 @@ def apply_and_pr(updates: dict[str, str]) -> None:
         "Opened by the weekly update action. Changes based on patterns found in "
         "relevant projects in [josix/awesome-claude-md](https://github.com/josix/awesome-claude-md).\n\n"
         f"**Updated:** {', '.join(changed)}\n\n"
-        "**Model used:** Gemini 1.5 Flash\n\n"
+        "**Model used:** Gemini 2.5 Flash\n\n"
         "Please review before merging."
     )
 
